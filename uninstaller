@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+
+app=$1
+
+if [ -z "${app}" ]; then
+  # TODO make a print_usage function when there's more usage
+  echo "Usage: uninstaller [path to app bundle]" >&2
+  exit 1
+fi
+
+if [ ! -e "${app}" ]; then
+  echo "Application \"${app}\" doesn't exist" >&2
+  exit 1
+fi
+
+plist="${app}/Contents/Info.plist"
+
+if [ ! -e "${plist}" ]; then
+  echo "No plist found at ${plist}" >&2
+  exit 1
+fi
+
+function extract_plist_key() {
+  val=`plutil -extract $1 raw ${plist} 2>/dev/null`
+
+  if [ "$?" -eq 0 ]; then
+    echo "${val}"
+  else
+    echo ""
+  fi
+}
+
+plist_bundle_name=$(extract_plist_key "CFBundleName")
+plist_bundle_id=$(extract_plist_key "CFBundleIdentifier")
+
+# START DEBUG
+echo "app: ${app}"
+
+if [ -n "${plist_bundle_name}" ]; then
+  echo "plist_bundle_name: ${plist_bundle_name}"
+fi
+
+if [ -n "${plist_bundle_id}" ]; then
+  echo "plist_bundle_id: ${plist_bundle_id}"
+fi
+# END DEBUG
+
+library_folders_to_check=("Application Support" "Caches" "Preferences" "Saved Application State")
+library_folders_found=()
+
+for f in "${library_folders_to_check[@]}"; do
+  if [ -n "${plist_bundle_name}" ]; then
+    library_bundle_name_folder="${HOME}/Library/${f}/${plist_bundle_name}"
+  fi
+
+  if [ -n "${plist_bundle_id}" ]; then
+    library_bundle_id_folder="${HOME}/Library/${f}/${plist_bundle_id}"
+  fi
+
+  if [ -d "${library_bundle_name_folder}" ]; then
+    library_folders_found+=("${library_bundle_name_folder}")
+  fi
+
+  if [ -d "${library_bundle_id_folder}" ] && [[ "${library_bundle_id_folder}" != "${library_bundle_name_folder}" ]]; then
+    library_folders_found+=("${library_bundle_id_folder}")
+  fi
+done
+
+if [ ${#library_folders_found[@]} -gt 0 ]; then
+  echo "Library folders found:"
+
+  for library_folder in "${library_folders_found[@]}"; do
+    echo "  ${library_folder}"
+  done
+else
+  echo "No Library folders found"
+fi
+
+to_delete=("${app}")
+to_delete+=("${library_folders_found[@]}")
+
+plist_names_to_check=("${plist_bundle_id}" "${plist_bundle_name}")
+
+for n in "${plist_names_to_check[@]}"; do
+  plist_path="${HOME}/Library/Preferences/${n}.plist"
+
+  if [ -e "${plist_path}" ]; then
+    to_delete+=("${plist_path}")
+  fi
+done
+
+echo -e "\nAbout to rm -rf"
+
+for path in "${to_delete[@]}"; do
+  echo "  ${path}"
+done
+
+echo ""
+read -r -p "Are you sure? [y/N] " response
+if [[ "$response" =~ ^[Yy]$ ]]; then
+  echo -e "\nProceeding with operation..."
+
+  for path in "${to_delete[@]}"; do
+    sudo rm -rf ${path}
+    echo "  🗑 ️ ${path} ✅"
+  done
+else
+    echo -e "\nOperation cancelled."
+    exit 1
+fi
